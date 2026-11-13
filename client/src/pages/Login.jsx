@@ -23,7 +23,17 @@ export default function Login() {
       const from = location.state?.from?.pathname || '/';
       navigate(from, { replace: true });
     } catch (err) {
-      setError(err.response?.data?.message || 'Invalid email or password.');
+      if (err.response?.data?.message) {
+        setError(err.response.data.message);
+      } else if (err.response?.status === 404) {
+        setError('Server API tidak ditemukan (404). Pastikan backend aktif.');
+      } else if (err.response?.status >= 500) {
+        setError('Terjadi kendala pada server (500). Silakan periksa log server.');
+      } else if (!err.response) {
+        setError('Gagal terhubung ke server (Network Error).');
+      } else {
+        setError('Email atau password tidak sesuai.');
+      }
     } finally {
       setLoading(false);
     }

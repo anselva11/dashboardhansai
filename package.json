@@ -2,6 +2,11 @@
   "name": "hansai-shipping-platform",
   "version": "1.0.0",
   "description": "HANSAI SHIPPING LINE — Integrated Shipping, Container & Vessel Management System",
+  "type": "module",
+  "workspaces": [
+    "server",
+    "client"
+  ],
   "scripts": {
     "install:all": "npm install && cd server && npm install && cd ../client && npm install",
     "setup": "cd server && npm run setup",
@@ -9,10 +14,23 @@
     "dev:client": "cd client && npm run dev",
     "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
     "seed": "cd server && npm run seed",
-    "build": "cd client && npm run build",
+    "build": "cd server && npx prisma generate && cd ../client && npm run build",
     "start": "cd server && npm run start"
   },
+  "dependencies": {
+    "@prisma/client": "^5.22.0",
+    "bcryptjs": "^2.4.3",
+    "cors": "^2.8.5",
+    "dayjs": "^1.11.13",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "helmet": "^8.0.0",
+    "jsonwebtoken": "^9.0.2",
+    "multer": "^1.4.5-lts.1",
+    "zod": "^3.24.1"
+  },
   "devDependencies": {
-    "concurrently": "^9.1.0"
+    "concurrently": "^9.1.0",
+    "prisma": "^5.22.0"
   }
 }

@@ -15,11 +15,11 @@ server/.env
 !server/.env.example
 
 # Database files
-*.db
 *.db-journal
+*.sqlite-journal
 server/dev.db
-server/prisma/dev.db
 server/dev.db-journal
+!server/prisma/dev.db
 
 # Logs
 logs
@@ -35,3 +35,4 @@ lerna-debug.log*
 Thumbs.db
 .vscode/
 .idea/
+
