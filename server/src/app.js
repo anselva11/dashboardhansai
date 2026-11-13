@@ -41,7 +41,7 @@ app.use(express.urlencoded({ extended: true }));
 app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 
 // Health check endpoint
-app.get('/api/health', (req, res) => {
+app.get(['/api/health', '/health', '/'], (req, res) => {
   res.json({
     status: 'ONLINE',
     company: 'HANSAI SHIPPING LINE',
@@ -51,16 +51,21 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-// Mount Module Routes
-app.use('/api/auth', authRoutes);
-app.use('/api/dashboard', dashboardRoutes);
-app.use('/api/shipments', shipmentRoutes);
-app.use('/api/containers', containerRoutes);
-app.use('/api/vessels', vesselRoutes);
-app.use('/api/finance', financeRoutes);
-app.use('/api/calculators', calculatorRoutes);
-app.use('/api/crm', crmRoutes);
-app.use('/api/system', systemRoutes);
+// Helper to mount module routes (supports both /api prefix and direct mounting)
+const mountRoutes = (prefix = '') => {
+  app.use(`${prefix}/auth`, authRoutes);
+  app.use(`${prefix}/dashboard`, dashboardRoutes);
+  app.use(`${prefix}/shipments`, shipmentRoutes);
+  app.use(`${prefix}/containers`, containerRoutes);
+  app.use(`${prefix}/vessels`, vesselRoutes);
+  app.use(`${prefix}/finance`, financeRoutes);
+  app.use(`${prefix}/calculators`, calculatorRoutes);
+  app.use(`${prefix}/crm`, crmRoutes);
+  app.use(`${prefix}/system`, systemRoutes);
+};
+
+mountRoutes('/api');
+mountRoutes('');
 
 // Global Error Handler
 app.use((err, req, res, next) => {
