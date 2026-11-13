@@ -1,0 +1,695 @@
+// HANSAI SHIPPING LINE — Prisma Schema
+// Dual compatible: runs seamlessly on SQLite for local zero-config testing
+// and maps directly to PostgreSQL for production deployments.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// -------------------------------------------------------------
+// USER & RBAC
+// -------------------------------------------------------------
+
+model User {
+  id           String     @id @default(uuid())
+  email        String     @unique
+  password     String
+  name         String
+  role         String     @default("Operational Staff") // Super Admin, Administrator, Finance Manager, Shipping Manager, Container Manager, Operational Staff, Viewer
+  avatar       String?
+  phone        String?
+  department   String?
+  isActive     Boolean    @default(true)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  auditLogs    AuditLog[]
+  calculations CalculatorHistory[]
+}
+
+model Role {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  description String?
+  permissions String   // JSON array of permission strings
+  isSystem    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// -------------------------------------------------------------
+// CRM: CUSTOMERS & SUPPLIERS
+// -------------------------------------------------------------
+
+model Customer {
+  id                 String            @id @default(uuid())
+  companyName        String
+  contactPerson      String
+  email              String
+  phone              String
+  address            String
+  country            String
+  taxId              String?
+  customerType       String            @default("Corporate") // Corporate, Freight Forwarder, Direct Shipper, Trader
+  creditLimit        Float             @default(0)
+  outstandingBalance Float             @default(0)
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+
+  shipments          Shipment[]
+  rentals            ContainerRental[]
+  invoices           Invoice[]
+  containerSales     ContainerSale[]
+}
+
+model Supplier {
+  id                 String             @id @default(uuid())
+  companyName        String
+  contactPerson      String
+  email              String
+  phone              String
+  address            String
+  country            String
+  taxId              String?
+  serviceType        String             // Shipping Line, Container Depot, Trucking, Feeder, Surveyor, Shipyard
+  paymentTerms       String             @default("Net 30")
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+
+  shipments          Shipment[]
+  containerPurchases ContainerPurchase[]
+  invoices           Invoice[]
+}
+
+// -------------------------------------------------------------
+// SHIPPING MANAGEMENT
+// -------------------------------------------------------------
+
+model Shipment {
+  id              String             @id @default(uuid())
+  shipmentNumber  String             @unique // e.g. SHP-2026-001
+  customerId      String
+  customer        Customer           @relation(fields: [customerId], references: [id])
+  supplierId      String?
+  supplier        Supplier?          @relation(fields: [supplierId], references: [id])
+  commodity       String
+  hsCode          String?
+  quantity        Int                @default(1)
+  grossWeight     Float              // in KG
+  netWeight       Float?             // in KG
+  volumeCbm       Float              // in CBM
+  containerNumber String?
+  containerType   String             // 20FT STD, 40FT STD, 40HC, LCL, etc.
+  incoterms       String             @default("FOB") // FOB, CIF, CFR, EXW, DDP, DAP
+  pol             String             // Port of Loading
+  pod             String             // Port of Discharge
+  finalDestination String?
+  shippingLine    String             @default("HANSAI SHIPPING LINE")
+  vesselName      String
+  voyageNumber    String
+  bookingNumber   String?
+  blNumber        String?            // Bill of Lading Number
+  etd             DateTime           // Estimated Time of Departure
+  eta             DateTime           // Estimated Time of Arrival
+  actualDeparture DateTime?
+  actualArrival   DateTime?
+  freightCost     Float              @default(0)
+  thcOrigin       Float              @default(0)
+  thcDestination  Float              @default(0)
+  insurance       Float              @default(0)
+  customsCharges  Float              @default(0)
+  otherExpenses   Float              @default(0)
+  totalCost       Float              @default(0)
+  sellingRate     Float              @default(0)
+  status          String             @default("Booking Confirmed") // Booking Confirmed, In Transit, Customs Cleared, Delivered, Cancelled
+  notes           String?
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+
+  trackingStages  ShipmentTracking[]
+  thcTransactions THCTransaction[]
+  documents       Document[]
+}
+
+model ShipmentTracking {
+  id         String   @id @default(uuid())
+  shipmentId String
+  shipment   Shipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+  stageOrder Int      // 1 to 12
+  stageName  String   // e.g. Warehouse Preparation, Stuffing, Documentation, etc.
+  status     String   @default("Pending") // Pending, In Progress, Completed, Delayed
+  location   String?
+  timestamp  DateTime?
+  notes      String?
+  updatedBy  String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+// -------------------------------------------------------------
+// CONTAINER INVENTORY & OPERATIONS
+// -------------------------------------------------------------
+
+model Container {
+  id               String            @id @default(uuid())
+  containerNumber  String            @unique // e.g. HNSU-204819-2
+  containerType    String            // 20FT Standard, 40FT Standard, 40FT High Cube, 20FT Refrigerated, 40FT Refrigerated, Open Top, Flat Rack
+  owner            String            @default("HANSAI SHIPPING LINE")
+  purchaseDate     DateTime?
+  purchasePrice    Float             @default(0)
+  currentValue     Float             @default(0)
+  condition        String            @default("Cargo Worthy (CW)") // Brand New, IICL, Cargo Worthy (CW), Wind & Water Tight (WWT), As-Is
+  currentLocation  String            // Jakarta Depot, Surabaya Depot, Singapore Port, Port Klang, etc.
+  status           String            @default("Available") // Available, Rented, In Transit, Under Maintenance, Damaged, Sold
+  lastInspection   DateTime?
+  nextMaintenance  DateTime?
+  notes            String?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+
+  rentals          ContainerRental[]
+  sales            ContainerSale[]
+  maintenances     Maintenance[]
+}
+
+model ContainerRental {
+  id                String          @id @default(uuid())
+  contractNumber    String          @unique // e.g. RNT-2026-001
+  customerId        String
+  customer          Customer        @relation(fields: [customerId], references: [id])
+  containerId       String
+  container         Container       @relation(fields: [containerId], references: [id])
+  startDate         DateTime
+  endDate           DateTime
+  returnDate        DateTime?
+  rateType          String          @default("Monthly") // Daily, Weekly, Monthly
+  rentalRate        Float           // Rate per duration
+  depositAmount     Float           @default(0)
+  lateFeePerDay     Float           @default(0)
+  calculatedLateFee Float           @default(0)
+  damageCharges     Float           @default(0)
+  totalRentalAmount Float           @default(0)
+  paidAmount        Float           @default(0)
+  outstandingAmount Float           @default(0)
+  status            String          @default("Active") // Active, Returned, Overdue, Cancelled
+  paymentStatus     String          @default("Pending") // Paid, Partial, Pending, Overdue
+  notes             String?
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+
+  rentalPayments    RentalPayment[]
+}
+
+model RentalPayment {
+  id              String          @id @default(uuid())
+  rentalId        String
+  rental          ContainerRental @relation(fields: [rentalId], references: [id], onDelete: Cascade)
+  paymentDate     DateTime        @default(now())
+  amount          Float
+  paymentMethod   String          @default("Bank Transfer") // Bank Transfer, Cash, LC
+  referenceNumber String?
+  notes           String?
+  createdAt       DateTime        @default(now())
+}
+
+model ContainerPurchase {
+  id                   String    @id @default(uuid())
+  purchaseNumber       String    @unique // e.g. CPO-2026-001
+  supplierId           String
+  supplier             Supplier  @relation(fields: [supplierId], references: [id])
+  containerNumber      String
+  containerType        String
+  condition            String
+  purchaseDate         DateTime  @default(now())
+  purchasePrice        Float
+  transportationCost   Float     @default(0)
+  inspectionCost       Float     @default(0)
+  repairCost           Float     @default(0)
+  otherCosts           Float     @default(0)
+  totalAcquisitionCost Float
+  paymentStatus        String    @default("Paid") // Paid, Partial, Unpaid
+  notes                String?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+}
+
+model ContainerSale {
+  id                 String    @id @default(uuid())
+  saleNumber         String    @unique // e.g. CSL-2026-001
+  buyerId            String
+  buyer              Customer  @relation(fields: [buyerId], references: [id])
+  containerId        String
+  container          Container @relation(fields: [containerId], references: [id])
+  containerNumber    String
+  containerType      String
+  salesDate          DateTime  @default(now())
+  sellingPrice       Float
+  deliveryCost       Float     @default(0)
+  otherCosts         Float     @default(0)
+  totalSalesRevenue  Float
+  acquisitionCost    Float
+  grossProfit        Float     // sellingPrice - totalAcquisitionCost - deliveryCost - otherCosts
+  paymentStatus      String    @default("Paid") // Paid, Partial, Unpaid
+  notes              String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+}
+
+model Maintenance {
+  id              String     @id @default(uuid())
+  containerId     String?
+  container       Container? @relation(fields: [containerId], references: [id])
+  serviceType     String     // Container Repair, Reefer Unit Service, PTI Inspection, Cleaning, Painting
+  cost            Float      @default(0)
+  serviceDate     DateTime   @default(now())
+  completionDate  DateTime?
+  serviceProvider String
+  status          String     @default("Completed") // Scheduled, In Progress, Completed
+  notes           String?
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+}
+
+// -------------------------------------------------------------
+// MODULE 21: VESSEL DATABASE & SHIP MANAGEMENT
+// -------------------------------------------------------------
+
+model Vessel {
+  id                    String                @id @default(uuid())
+  vesselCode            String                @unique // e.g. VSL-TGB-01
+  vesselName            String                // e.g. TB HANSAI PIONEER 01
+  vesselType            String                // Tugboat, Barge / Tongkang, Oil Tanker, Landing Craft Tank (LCT), Container Ship, Bulk Carrier, Fast Crew Boat (FCB)
+  imoNumber             String?               // Optional for domestic/barges
+  registrationNumber    String?               // Official Registration Number
+  flagState             String                @default("Indonesia")
+  yearBuilt             Int
+  shipyard              String?               // Builder / Shipyard
+  countryOfBuild        String?
+  classificationSociety String?               // BKI, ABS, DNV, LR, BV, NK
+  previousName          String?
+  ownershipStatus       String                @default("Owned") // Owned, Chartered In, For Sale, Sold, Under Acquisition
+  currentLocation       String                // Port of Tanjung Priok, Batam, Balikpapan, Singapore, etc.
+  condition             String                @default("Good") // Excellent, Good, Fair, Under Repair, Laid Up
+  operationalStatus     String                @default("Operational") // Available, Operational, Under Charter, Under Maintenance, Under Survey, Laid Up, For Sale, Sold, Under Acquisition
+  purchasePrice         Float                 @default(0)
+  currentEstimatedValue Float                 @default(0)
+  createdAt             DateTime              @default(now())
+  updatedAt             DateTime              @updatedAt
+
+  specification         VesselSpecification?
+  schedules             VesselSchedule[]
+  purchases             VesselPurchase[]
+  sales                 VesselSale[]
+  maintenances          VesselMaintenance[]
+  operationalExpenses   VesselOperationalExpense[]
+  documents             VesselDocument[]
+  surveys               VesselSurvey[]
+}
+
+model VesselSpecification {
+  id                   String   @id @default(uuid())
+  vesselId             String   @unique
+  vessel               Vessel   @relation(fields: [vesselId], references: [id], onDelete: Cascade)
+  loa                  Float?   // Length Overall (m)
+  lbp                  Float?   // Length Between Perpendiculars (m)
+  breadth              Float?   // Breadth (m)
+  depth                Float?   // Depth (m)
+  draft                Float?   // Draft (m)
+  gt                   Float?   // Gross Tonnage
+  nt                   Float?   // Net Tonnage
+  dwt                  Float?   // Deadweight Tonnage
+  lightshipWeight      Float?   // Lightship Weight (MT)
+  mainEngineMaker      String?  // Caterpillar, Yanmar, Cummins, MAN B&W, etc.
+  mainEngineModel      String?
+  mainEnginePowerHp    Float?   // Power in HP
+  mainEngineCount      Int?     @default(1)
+  auxEngine            String?
+  fuelType             String?  @default("MGO") // MGO, HFO, Marine Diesel Oil, Biofuel
+  fuelConsumption      Float?   // Liters / Hour or MT / Day
+  serviceSpeed         Float?   // Knots
+  maxSpeed             Float?   // Knots
+  crewCapacity         Int?
+  classificationStatus String?  @default("In Class")
+
+  // Type specific fields saved as flexible JSON string:
+  // Tugboat: bollardPullTon, towingEquipment, config
+  // Barge: deckLoadCapacity, rakedFlatEnd, bargeType
+  // Tanker: cargoCapacityCbm, numTanks, pumpCapacity, oilType, doubleHull
+  // LCT: rampCapacity, rampDimensions, landingCapability
+  // ContainerShip: teuCapacity, feuCapacity, reeferPlugs, cranes
+  // BulkCarrier: numHolds, numHatches, craneCapacity
+  // FCB: passengerCapacity, hullMaterial, enduranceHours
+  specificSpecsJson    String?  // JSON string of type-specific attributes
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+}
+
+model VesselPurchase {
+  id                   String   @id @default(uuid())
+  purchaseNumber       String   @unique // e.g. VPS-2026-001
+  vesselId             String
+  vessel               Vessel   @relation(fields: [vesselId], references: [id])
+  vesselName           String
+  vesselType           String
+  seller               String
+  broker               String?
+  purchaseDate         DateTime @default(now())
+  agreementNumber      String?
+  purchasePrice        Float
+  currency             String   @default("USD")
+  exchangeRate         Float    @default(16000)
+  surveyCost           Float    @default(0)
+  inspectionCost       Float    @default(0)
+  legalFees            Float    @default(0)
+  documentationCost    Float    @default(0)
+  registrationFees     Float    @default(0)
+  deliveryCost         Float    @default(0)
+  repairCost           Float    @default(0)
+  otherCosts           Float    @default(0)
+  totalAcquisitionCost Float
+  paymentTerms         String   @default("30% Deposit, 70% Handover")
+  depositAmount        Float    @default(0)
+  paidAmount           Float    @default(0)
+  remainingPayment     Float    @default(0)
+  paymentStatus        String   @default("Completed") // Completed, Partial, Pending
+  deliveryDate         DateTime?
+  handoverStatus       String   @default("Completed") // Pending, In Progress, Handover Completed
+  notes                String?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+}
+
+model VesselSale {
+  id                       String   @id @default(uuid())
+  saleNumber               String   @unique // e.g. VSL-2026-001
+  vesselId                 String
+  vessel                   Vessel   @relation(fields: [vesselId], references: [id])
+  vesselName               String
+  vesselType               String
+  buyer                    String
+  broker                   String?
+  salesDate                DateTime @default(now())
+  agreementNumber          String?
+  sellingPrice             Float
+  currency                 String   @default("USD")
+  exchangeRate             Float    @default(16000)
+  surveyCost               Float    @default(0)
+  commission               Float    @default(0)
+  legalFees                Float    @default(0)
+  documentationFees        Float    @default(0)
+  deliveryCost             Float    @default(0)
+  otherCosts               Float    @default(0)
+  totalSalesRevenue        Float
+  totalSalesExpenses       Float
+  originalAcquisitionCost  Float
+  accumulatedDepreciation  Float    @default(0)
+  netBookValue             Float    @default(0)
+  realizedTradingProfit    Float    // sellingPrice - originalAcquisitionCost - totalSalesExpenses
+  accountingGainLoss       Float    @default(0) // sellingPrice - totalSalesExpenses - netBookValue
+  paymentReceived          Float    @default(0)
+  outstandingBalance       Float    @default(0)
+  paymentStatus            String   @default("Paid") // Paid, Partial, Unpaid
+  handoverDate             DateTime?
+  transferStatus           String   @default("Ownership Transferred") // Pending, Under Transfer, Ownership Transferred
+  notes                    String?
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
+}
+
+model VesselMaintenance {
+  id                 String   @id @default(uuid())
+  vesselId           String
+  vessel             Vessel   @relation(fields: [vesselId], references: [id])
+  maintenanceType    String   // Annual Drydock, Special Survey Drydock, Main Engine Overhaul, Hull Sandblasting, Propeller Inspection, Emergency Repair
+  title              String
+  description        String?
+  serviceProvider    String   // Shipyard / Contractor name
+  startDate          DateTime
+  completionDate     DateTime?
+  cost               Float    @default(0)
+  currency           String   @default("USD")
+  status             String   @default("Completed") // Scheduled, In Progress, Completed
+  nextScheduledDate  DateTime?
+  invoiceRef         String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+}
+
+model VesselOperationalExpense {
+  id            String   @id @default(uuid())
+  vesselId      String
+  vessel        Vessel   @relation(fields: [vesselId], references: [id])
+  category      String   // Fuel, Lubricants, Crew Salaries, Port Charges, Port Clearance, Insurance, Spare Parts, Safety Equipment, Other
+  description   String
+  date          DateTime @default(now())
+  amount        Float
+  currency      String   @default("USD")
+  vendor        String?
+  receiptNumber String?
+  status        String   @default("Paid")
+  createdAt     DateTime @default(now())
+}
+
+model VesselDocument {
+  id               String    @id @default(uuid())
+  vesselId         String
+  vessel           Vessel    @relation(fields: [vesselId], references: [id])
+  documentType     String    // Certificate of Registry, Certificate of Class, Tonnage Certificate, Safety Equipment, Load Line, IOPP, P&I Insurance, Survey Report
+  documentNumber   String?
+  issueDate        DateTime?
+  expiryDate       DateTime?
+  issuingAuthority String?   // BKI, Hubla / Ministry of Transportation, ABS
+  fileUrl          String?
+  status           String    @default("Valid") // Valid, Expiring Soon, Expired
+  notes            String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+}
+
+model VesselSurvey {
+  id                 String    @id @default(uuid())
+  vesselId           String
+  vessel             Vessel    @relation(fields: [vesselId], references: [id])
+  surveyType         String    // Annual Survey, Intermediate Survey, Special Survey, Condition Survey, On-Hire Survey, Off-Hire Survey
+  surveyorName       String
+  surveyorCompany    String    // Biro Klasifikasi Indonesia, Lloyd's Register, Independent Marine Surveyor
+  surveyDate         DateTime  @default(now())
+  nextSurveyDueDate  DateTime?
+  resultStatus       String    @default("Passed") // Passed, Passed with Conditions, Rectification Required, Failed
+  findings           String?
+  recommendations    String?
+  fileUrl            String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+}
+
+model VesselSchedule {
+  id              String    @id @default(uuid())
+  scheduleNumber  String    @unique // e.g. VSC-2026-001
+  vesselId        String
+  vessel          Vessel    @relation(fields: [vesselId], references: [id])
+  vesselName      String
+  voyageNumber    String
+  originPort      String
+  destinationPort String
+  etd             DateTime
+  eta             DateTime
+  actualDeparture DateTime?
+  actualArrival   DateTime?
+  status          String    @default("Scheduled") // Scheduled, Sailing, Arrived, Delayed, Cancelled
+  notes           String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+}
+
+// -------------------------------------------------------------
+// FINANCIAL MANAGEMENT
+// -------------------------------------------------------------
+
+model FinancialTransaction {
+  id                String   @id @default(uuid())
+  transactionNumber String   @unique // e.g. TRX-2026-0001
+  date              DateTime @default(now())
+  division          String   // Shipping Line, Container Rental, Container Trading, Vessel Trading, Corporate / Overhead
+  type              String   // Income, Expense
+  category          String   // Ocean Freight, Container Rental, Container Sales, Vessel Sales, Fuel, Port Charges, Crew Salaries, Maintenance, Demurrage, Admin
+  amount            Float
+  currency          String   @default("USD")
+  exchangeRate      Float    @default(16000)
+  amountIdr         Float    // Normalized IDR value for aggregated reporting
+  referenceType     String?  // Shipment, ContainerRental, ContainerPurchase, ContainerSale, VesselPurchase, VesselSale, General
+  referenceId       String?
+  description       String
+  paymentMethod     String   @default("Bank Transfer")
+  status            String   @default("Completed") // Completed, Pending, Reconciled
+  createdBy         String?
+  createdAt         DateTime @default(now())
+}
+
+model Invoice {
+  id            String        @id @default(uuid())
+  invoiceNumber String        @unique // e.g. INV-2026-0001
+  invoiceType   String        @default("Sales Invoice") // Sales Invoice, Rental Invoice, Container Purchase Invoice, Container Sales Invoice, Vessel Invoice, Proforma Invoice
+  customerId    String?
+  customer      Customer?     @relation(fields: [customerId], references: [id])
+  supplierId    String?
+  supplier      Supplier?     @relation(fields: [supplierId], references: [id])
+  issueDate     DateTime      @default(now())
+  dueDate       DateTime
+  currency      String        @default("USD")
+  subtotal      Float         @default(0)
+  taxRate       Float         @default(11) // PPN 11%
+  taxAmount     Float         @default(0)
+  totalAmount   Float         @default(0)
+  paidAmount    Float         @default(0)
+  balanceDue    Float         @default(0)
+  status        String        @default("Pending") // Paid, Partial, Pending, Overdue, Cancelled
+  notes         String?
+  terms         String?       @default("Payment due within 30 days of invoice date")
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  items         InvoiceItem[]
+  payments      Payment[]
+}
+
+model InvoiceItem {
+  id          String   @id @default(uuid())
+  invoiceId   String
+  invoice     Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  description String
+  quantity    Float    @default(1)
+  unitPrice   Float    @default(0)
+  amount      Float    @default(0)
+}
+
+model Payment {
+  id              String   @id @default(uuid())
+  paymentNumber   String   @unique
+  invoiceId       String
+  invoice         Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  paymentDate     DateTime @default(now())
+  amount          Float
+  paymentMethod   String   @default("Bank Transfer")
+  referenceNumber String?
+  notes           String?
+  createdAt       DateTime @default(now())
+}
+
+// -------------------------------------------------------------
+// TAX, CUSTOMS & THC
+// -------------------------------------------------------------
+
+model TaxConfiguration {
+  id             String    @id @default(uuid())
+  code           String    @unique // BM_GENERAL, PPN_IMPORT, PPH22_IMPORT_API, PPH23_FREIGHT
+  name           String    // Bea Masuk Standard, PPN Impor 11%, PPh 22 Impor, etc.
+  category       String    // Import Duty, Export Duty, Import VAT, Income Tax, Excise
+  ratePercent    Float
+  effectiveFrom  DateTime  @default(now())
+  effectiveTo    DateTime?
+  taxBaseFormula String    // CIF, CIF+BM, Gross Freight, FOB
+  description    String?
+  isActive       Boolean   @default(true)
+}
+
+model TaxTransaction {
+  id             String   @id @default(uuid())
+  referenceType  String   // Shipment, ImportDeclaration, CustomsBilling
+  referenceId    String?
+  hsCode         String
+  customsValue   Float    // CIF value
+  fobValue       Float    @default(0)
+  freight        Float    @default(0)
+  insurance      Float    @default(0)
+  cifValue       Float    @default(0)
+  beaMasukRate   Float    @default(0)
+  beaMasukAmount Float    @default(0)
+  ppnRate        Float    @default(11)
+  ppnAmount      Float    @default(0)
+  pphRate        Float    @default(2.5)
+  pphAmount      Float    @default(0)
+  totalTaxes     Float    @default(0)
+  currency       String   @default("USD")
+  exchangeRate   Float    @default(16000)
+  status         String   @default("Estimated") // Estimated, Confirmed, Paid
+  notes          String?
+  createdAt      DateTime @default(now())
+}
+
+model THCTransaction {
+  id                 String    @id @default(uuid())
+  shipmentId         String?
+  shipment           Shipment? @relation(fields: [shipmentId], references: [id])
+  portType           String    // Origin, Destination
+  portName           String    // Tanjung Priok, Port of Singapore, Port of Shanghai
+  containerType      String    // 20FT, 40FT, 40HC, 20RF, 40RF
+  quantity           Int       @default(1)
+  ratePerContainer   Float
+  additionalHandling Float     @default(0)
+  vatRate            Float     @default(11)
+  vatAmount          Float     @default(0)
+  totalThc           Float
+  currency           String    @default("USD")
+  createdAt          DateTime  @default(now())
+}
+
+// -------------------------------------------------------------
+// SYSTEM, AUDIT, DOCUMENTS & UTILITIES
+// -------------------------------------------------------------
+
+model Document {
+  id         String    @id @default(uuid())
+  title      String
+  category   String    // Bill of Lading, Commercial Invoice, Packing List, Delivery Order, Certificate of Origin, Insurance Certificate, Customs Document, Rental Agreement, Inspection Report
+  entityType String    // Shipment, Container, Vessel, Invoice, General
+  entityId   String?
+  fileName   String
+  fileUrl    String
+  fileSize   Int?      // in bytes
+  mimeType   String?
+  uploadedBy String?
+  shipmentId String?
+  shipment   Shipment? @relation(fields: [shipmentId], references: [id])
+  createdAt  DateTime  @default(now())
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id])
+  userName  String?
+  action    String   // CREATE, UPDATE, DELETE, LOGIN, EXPORT, CALCULATION
+  module    String   // Shipment, Container, Vessel, Finance, Auth, Settings
+  recordId  String?
+  details   String?  // JSON string or description of change
+  ipAddress String?
+  createdAt DateTime @default(now())
+}
+
+model CalculatorHistory {
+  id             String   @id @default(uuid())
+  calculatorType String   // OceanFreight, FCL, LCL, CBM, TaxCustoms, THC, VesselProfit, ProfitMargin
+  inputDataJson  String   // JSON string of inputs
+  resultDataJson String   // JSON string of results
+  savedBy        String?
+  user           User?    @relation(fields: [savedBy], references: [id])
+  createdAt      DateTime @default(now())
+}
+
+model ExchangeRate {
+  id             String   @id @default(uuid())
+  baseCurrency   String   @default("USD")
+  targetCurrency String   // IDR, EUR, SGD, CNY, INR, AED, MYR
+  rate           Float
+  effectiveDate  DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([baseCurrency, targetCurrency])
+}
+

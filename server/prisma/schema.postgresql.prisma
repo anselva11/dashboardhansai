@@ -1,0 +1,740 @@
+// HANSAI SHIPPING LINE — Production PostgreSQL Prisma Schema
+// To use PostgreSQL:
+// 1. Set DATABASE_URL="postgresql://user:password@localhost:5432/hansai_shipping?schema=public" in .env
+// 2. Run: npx prisma db push --schema=prisma/schema.postgresql.prisma
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// -------------------------------------------------------------
+// USER & RBAC
+// -------------------------------------------------------------
+
+model User {
+  id           String     @id @default(uuid())
+  email        String     @unique
+  password     String
+  name         String
+  role         String     @default("Operational Staff")
+  avatar       String?
+  phone        String?
+  department   String?
+  isActive     Boolean    @default(true)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  auditLogs    AuditLog[]
+  calculations CalculatorHistory[]
+
+  @@index([email])
+  @@index([role])
+}
+
+model Role {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  description String?
+  permissions String   // JSON array of permission strings
+  isSystem    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// -------------------------------------------------------------
+// CRM: CUSTOMERS & SUPPLIERS
+// -------------------------------------------------------------
+
+model Customer {
+  id                 String            @id @default(uuid())
+  companyName        String
+  contactPerson      String
+  email              String
+  phone              String
+  address            String
+  country            String
+  taxId              String?
+  customerType       String            @default("Corporate")
+  creditLimit        Float             @default(0)
+  outstandingBalance Float             @default(0)
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+
+  shipments          Shipment[]
+  rentals            ContainerRental[]
+  invoices           Invoice[]
+  containerSales     ContainerSale[]
+
+  @@index([companyName])
+  @@index([country])
+}
+
+model Supplier {
+  id                 String             @id @default(uuid())
+  companyName        String
+  contactPerson      String
+  email              String
+  phone              String
+  address            String
+  country            String
+  taxId              String?
+  serviceType        String
+  paymentTerms       String             @default("Net 30")
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+
+  shipments          Shipment[]
+  containerPurchases ContainerPurchase[]
+  invoices           Invoice[]
+
+  @@index([companyName])
+}
+
+// -------------------------------------------------------------
+// SHIPPING MANAGEMENT
+// -------------------------------------------------------------
+
+model Shipment {
+  id              String             @id @default(uuid())
+  shipmentNumber  String             @unique
+  customerId      String
+  customer        Customer           @relation(fields: [customerId], references: [id])
+  supplierId      String?
+  supplier        Supplier?          @relation(fields: [supplierId], references: [id])
+  commodity       String
+  hsCode          String?
+  quantity        Int                @default(1)
+  grossWeight     Float
+  netWeight       Float?
+  volumeCbm       Float
+  containerNumber String?
+  containerType   String
+  incoterms       String             @default("FOB")
+  pol             String
+  pod             String
+  finalDestination String?
+  shippingLine    String             @default("HANSAI SHIPPING LINE")
+  vesselName      String
+  voyageNumber    String
+  bookingNumber   String?
+  blNumber        String?
+  etd             DateTime
+  eta             DateTime
+  actualDeparture DateTime?
+  actualArrival   DateTime?
+  freightCost     Float              @default(0)
+  thcOrigin       Float              @default(0)
+  thcDestination  Float              @default(0)
+  insurance       Float              @default(0)
+  customsCharges  Float              @default(0)
+  otherExpenses   Float              @default(0)
+  totalCost       Float              @default(0)
+  sellingRate     Float              @default(0)
+  status          String             @default("Booking Confirmed")
+  notes           String?
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+
+  trackingStages  ShipmentTracking[]
+  thcTransactions THCTransaction[]
+  documents       Document[]
+
+  @@index([status])
+  @@index([pol])
+  @@index([pod])
+  @@index([etd])
+}
+
+model ShipmentTracking {
+  id         String   @id @default(uuid())
+  shipmentId String
+  shipment   Shipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+  stageOrder Int
+  stageName  String
+  status     String   @default("Pending")
+  location   String?
+  timestamp  DateTime?
+  notes      String?
+  updatedBy  String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([shipmentId])
+}
+
+// -------------------------------------------------------------
+// CONTAINER INVENTORY & OPERATIONS
+// -------------------------------------------------------------
+
+model Container {
+  id               String            @id @default(uuid())
+  containerNumber  String            @unique
+  containerType    String
+  owner            String            @default("HANSAI SHIPPING LINE")
+  purchaseDate     DateTime?
+  purchasePrice    Float             @default(0)
+  currentValue     Float             @default(0)
+  condition        String            @default("Cargo Worthy (CW)")
+  currentLocation  String
+  status           String            @default("Available")
+  lastInspection   DateTime?
+  nextMaintenance  DateTime?
+  notes            String?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+
+  rentals          ContainerRental[]
+  sales            ContainerSale[]
+  maintenances     Maintenance[]
+
+  @@index([containerNumber])
+  @@index([status])
+  @@index([containerType])
+  @@index([currentLocation])
+}
+
+model ContainerRental {
+  id                String          @id @default(uuid())
+  contractNumber    String          @unique
+  customerId        String
+  customer          Customer        @relation(fields: [customerId], references: [id])
+  containerId       String
+  container         Container       @relation(fields: [containerId], references: [id])
+  startDate         DateTime
+  endDate           DateTime
+  returnDate        DateTime?
+  rateType          String          @default("Monthly")
+  rentalRate        Float
+  depositAmount     Float           @default(0)
+  lateFeePerDay     Float           @default(0)
+  calculatedLateFee Float           @default(0)
+  damageCharges     Float           @default(0)
+  totalRentalAmount Float           @default(0)
+  paidAmount        Float           @default(0)
+  outstandingAmount Float           @default(0)
+  status            String          @default("Active")
+  paymentStatus     String          @default("Pending")
+  notes             String?
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+
+  rentalPayments    RentalPayment[]
+
+  @@index([status])
+  @@index([customerId])
+}
+
+model RentalPayment {
+  id              String          @id @default(uuid())
+  rentalId        String
+  rental          ContainerRental @relation(fields: [rentalId], references: [id], onDelete: Cascade)
+  paymentDate     DateTime        @default(now())
+  amount          Float
+  paymentMethod   String          @default("Bank Transfer")
+  referenceNumber String?
+  notes           String?
+  createdAt       DateTime        @default(now())
+}
+
+model ContainerPurchase {
+  id                   String    @id @default(uuid())
+  purchaseNumber       String    @unique
+  supplierId           String
+  supplier             Supplier  @relation(fields: [supplierId], references: [id])
+  containerNumber      String
+  containerType        String
+  condition            String
+  purchaseDate         DateTime  @default(now())
+  purchasePrice        Float
+  transportationCost   Float     @default(0)
+  inspectionCost       Float     @default(0)
+  repairCost           Float     @default(0)
+  otherCosts           Float     @default(0)
+  totalAcquisitionCost Float
+  paymentStatus        String    @default("Paid")
+  notes                String?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+}
+
+model ContainerSale {
+  id                 String    @id @default(uuid())
+  saleNumber         String    @unique
+  buyerId            String
+  buyer              Customer  @relation(fields: [buyerId], references: [id])
+  containerId        String
+  container          Container @relation(fields: [containerId], references: [id])
+  containerNumber    String
+  containerType      String
+  salesDate          DateTime  @default(now())
+  sellingPrice       Float
+  deliveryCost       Float     @default(0)
+  otherCosts         Float     @default(0)
+  totalSalesRevenue  Float
+  acquisitionCost    Float
+  grossProfit        Float
+  paymentStatus      String    @default("Paid")
+  notes              String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+}
+
+model Maintenance {
+  id              String     @id @default(uuid())
+  containerId     String?
+  container       Container? @relation(fields: [containerId], references: [id])
+  serviceType     String
+  cost            Float      @default(0)
+  serviceDate     DateTime   @default(now())
+  completionDate  DateTime?
+  serviceProvider String
+  status          String     @default("Completed")
+  notes           String?
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+}
+
+// -------------------------------------------------------------
+// MODULE 21: VESSEL DATABASE & SHIP MANAGEMENT
+// -------------------------------------------------------------
+
+model Vessel {
+  id                    String                @id @default(uuid())
+  vesselCode            String                @unique
+  vesselName            String
+  vesselType            String
+  imoNumber             String?
+  registrationNumber    String?
+  flagState             String                @default("Indonesia")
+  yearBuilt             Int
+  shipyard              String?
+  countryOfBuild        String?
+  classificationSociety String?
+  previousName          String?
+  ownershipStatus       String                @default("Owned")
+  currentLocation       String
+  condition             String                @default("Good")
+  operationalStatus     String                @default("Operational")
+  purchasePrice         Float                 @default(0)
+  currentEstimatedValue Float                 @default(0)
+  createdAt             DateTime              @default(now())
+  updatedAt             DateTime              @updatedAt
+
+  specification         VesselSpecification?
+  schedules             VesselSchedule[]
+  purchases             VesselPurchase[]
+  sales                 VesselSale[]
+  maintenances          VesselMaintenance[]
+  operationalExpenses   VesselOperationalExpense[]
+  documents             VesselDocument[]
+  surveys               VesselSurvey[]
+
+  @@index([vesselType])
+  @@index([operationalStatus])
+}
+
+model VesselSpecification {
+  id                   String   @id @default(uuid())
+  vesselId             String   @unique
+  vessel               Vessel   @relation(fields: [vesselId], references: [id], onDelete: Cascade)
+  loa                  Float?
+  lbp                  Float?
+  breadth              Float?
+  depth                Float?
+  draft                Float?
+  gt                   Float?
+  nt                   Float?
+  dwt                  Float?
+  lightshipWeight      Float?
+  mainEngineMaker      String?
+  mainEngineModel      String?
+  mainEnginePowerHp    Float?
+  mainEngineCount      Int?     @default(1)
+  auxEngine            String?
+  fuelType             String?  @default("MGO")
+  fuelConsumption      Float?
+  serviceSpeed         Float?
+  maxSpeed             Float?
+  crewCapacity         Int?
+  classificationStatus String?  @default("In Class")
+  specificSpecsJson    String?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+}
+
+model VesselPurchase {
+  id                   String   @id @default(uuid())
+  purchaseNumber       String   @unique
+  vesselId             String
+  vessel               Vessel   @relation(fields: [vesselId], references: [id])
+  vesselName           String
+  vesselType           String
+  seller               String
+  broker               String?
+  purchaseDate         DateTime @default(now())
+  agreementNumber      String?
+  purchasePrice        Float
+  currency             String   @default("USD")
+  exchangeRate         Float    @default(16000)
+  surveyCost           Float    @default(0)
+  inspectionCost       Float    @default(0)
+  legalFees            Float    @default(0)
+  documentationCost    Float    @default(0)
+  registrationFees     Float    @default(0)
+  deliveryCost         Float    @default(0)
+  repairCost           Float    @default(0)
+  otherCosts           Float    @default(0)
+  totalAcquisitionCost Float
+  paymentTerms         String   @default("30% Deposit, 70% Handover")
+  depositAmount        Float    @default(0)
+  paidAmount           Float    @default(0)
+  remainingPayment     Float    @default(0)
+  paymentStatus        String   @default("Completed")
+  deliveryDate         DateTime?
+  handoverStatus       String   @default("Completed")
+  notes                String?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  @@index([vesselId])
+}
+
+model VesselSale {
+  id                       String   @id @default(uuid())
+  saleNumber               String   @unique
+  vesselId                 String
+  vessel                   Vessel   @relation(fields: [vesselId], references: [id])
+  vesselName               String
+  vesselType               String
+  buyer                    String
+  broker                   String?
+  salesDate                DateTime @default(now())
+  agreementNumber          String?
+  sellingPrice             Float
+  currency                 String   @default("USD")
+  exchangeRate             Float    @default(16000)
+  surveyCost               Float    @default(0)
+  commission               Float    @default(0)
+  legalFees                Float    @default(0)
+  documentationFees        Float    @default(0)
+  deliveryCost             Float    @default(0)
+  otherCosts               Float    @default(0)
+  totalSalesRevenue        Float
+  totalSalesExpenses       Float
+  originalAcquisitionCost  Float
+  accumulatedDepreciation  Float    @default(0)
+  netBookValue             Float    @default(0)
+  realizedTradingProfit    Float
+  accountingGainLoss       Float    @default(0)
+  paymentReceived          Float    @default(0)
+  outstandingBalance       Float    @default(0)
+  paymentStatus            String   @default("Paid")
+  handoverDate             DateTime?
+  transferStatus           String   @default("Ownership Transferred")
+  notes                    String?
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
+
+  @@index([vesselId])
+}
+
+model VesselMaintenance {
+  id                 String   @id @default(uuid())
+  vesselId           String
+  vessel             Vessel   @relation(fields: [vesselId], references: [id])
+  maintenanceType    String
+  title              String
+  description        String?
+  serviceProvider    String
+  startDate          DateTime
+  completionDate     DateTime?
+  cost               Float    @default(0)
+  currency           String   @default("USD")
+  status             String   @default("Completed")
+  nextScheduledDate  DateTime?
+  invoiceRef         String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@index([vesselId])
+}
+
+model VesselOperationalExpense {
+  id            String   @id @default(uuid())
+  vesselId      String
+  vessel        Vessel   @relation(fields: [vesselId], references: [id])
+  category      String
+  description   String
+  date          DateTime @default(now())
+  amount        Float
+  currency      String   @default("USD")
+  vendor        String?
+  receiptNumber String?
+  status        String   @default("Paid")
+  createdAt     DateTime @default(now())
+
+  @@index([vesselId])
+}
+
+model VesselDocument {
+  id               String    @id @default(uuid())
+  vesselId         String
+  vessel           Vessel    @relation(fields: [vesselId], references: [id])
+  documentType     String
+  documentNumber   String?
+  issueDate        DateTime?
+  expiryDate       DateTime?
+  issuingAuthority String?
+  fileUrl          String?
+  status           String    @default("Valid")
+  notes            String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@index([vesselId])
+}
+
+model VesselSurvey {
+  id                 String    @id @default(uuid())
+  vesselId           String
+  vessel             Vessel    @relation(fields: [vesselId], references: [id])
+  surveyType         String
+  surveyorName       String
+  surveyorCompany    String
+  surveyDate         DateTime  @default(now())
+  nextSurveyDueDate  DateTime?
+  resultStatus       String    @default("Passed")
+  findings           String?
+  recommendations    String?
+  fileUrl            String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  @@index([vesselId])
+}
+
+model VesselSchedule {
+  id              String    @id @default(uuid())
+  scheduleNumber  String    @unique
+  vesselId        String
+  vessel          Vessel    @relation(fields: [vesselId], references: [id])
+  vesselName      String
+  voyageNumber    String
+  originPort      String
+  destinationPort String
+  etd             DateTime
+  eta             DateTime
+  actualDeparture DateTime?
+  actualArrival   DateTime?
+  status          String    @default("Scheduled")
+  notes           String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([vesselId])
+  @@index([status])
+}
+
+// -------------------------------------------------------------
+// FINANCIAL MANAGEMENT
+// -------------------------------------------------------------
+
+model FinancialTransaction {
+  id                String   @id @default(uuid())
+  transactionNumber String   @unique
+  date              DateTime @default(now())
+  division          String
+  type              String
+  category          String
+  amount            Float
+  currency          String   @default("USD")
+  exchangeRate      Float    @default(16000)
+  amountIdr         Float
+  referenceType     String?
+  referenceId       String?
+  description       String
+  paymentMethod     String   @default("Bank Transfer")
+  status            String   @default("Completed")
+  createdBy         String?
+  createdAt         DateTime @default(now())
+
+  @@index([division])
+  @@index([type])
+  @@index([category])
+  @@index([date])
+}
+
+model Invoice {
+  id            String        @id @default(uuid())
+  invoiceNumber String        @unique
+  invoiceType   String        @default("Sales Invoice")
+  customerId    String?
+  customer      Customer?     @relation(fields: [customerId], references: [id])
+  supplierId    String?
+  supplier      Supplier?     @relation(fields: [supplierId], references: [id])
+  issueDate     DateTime      @default(now())
+  dueDate       DateTime
+  currency      String        @default("USD")
+  subtotal      Float         @default(0)
+  taxRate       Float         @default(11)
+  taxAmount     Float         @default(0)
+  totalAmount   Float         @default(0)
+  paidAmount    Float         @default(0)
+  balanceDue    Float         @default(0)
+  status        String        @default("Pending")
+  notes         String?
+  terms         String?       @default("Payment due within 30 days of invoice date")
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  items         InvoiceItem[]
+  payments      Payment[]
+
+  @@index([status])
+  @@index([invoiceNumber])
+}
+
+model InvoiceItem {
+  id          String   @id @default(uuid())
+  invoiceId   String
+  invoice     Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  description String
+  quantity    Float    @default(1)
+  unitPrice   Float    @default(0)
+  amount      Float    @default(0)
+}
+
+model Payment {
+  id              String   @id @default(uuid())
+  paymentNumber   String   @unique
+  invoiceId       String
+  invoice         Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  paymentDate     DateTime @default(now())
+  amount          Float
+  paymentMethod   String   @default("Bank Transfer")
+  referenceNumber String?
+  notes           String?
+  createdAt       DateTime @default(now())
+}
+
+// -------------------------------------------------------------
+// TAX, CUSTOMS & THC
+// -------------------------------------------------------------
+
+model TaxConfiguration {
+  id             String    @id @default(uuid())
+  code           String    @unique
+  name           String
+  category       String
+  ratePercent    Float
+  effectiveFrom  DateTime  @default(now())
+  effectiveTo    DateTime?
+  taxBaseFormula String
+  description    String?
+  isActive       Boolean   @default(true)
+}
+
+model TaxTransaction {
+  id             String   @id @default(uuid())
+  referenceType  String
+  referenceId    String?
+  hsCode         String
+  customsValue   Float
+  fobValue       Float    @default(0)
+  freight        Float    @default(0)
+  insurance      Float    @default(0)
+  cifValue       Float    @default(0)
+  beaMasukRate   Float    @default(0)
+  beaMasukAmount Float    @default(0)
+  ppnRate        Float    @default(11)
+  ppnAmount      Float    @default(0)
+  pphRate        Float    @default(2.5)
+  pphAmount      Float    @default(0)
+  totalTaxes     Float    @default(0)
+  currency       String   @default("USD")
+  exchangeRate   Float    @default(16000)
+  status         String   @default("Estimated")
+  notes          String?
+  createdAt      DateTime @default(now())
+}
+
+model THCTransaction {
+  id                 String    @id @default(uuid())
+  shipmentId         String?
+  shipment           Shipment? @relation(fields: [shipmentId], references: [id])
+  portType           String
+  portName           String
+  containerType      String
+  quantity           Int       @default(1)
+  ratePerContainer   Float
+  additionalHandling Float     @default(0)
+  vatRate            Float     @default(11)
+  vatAmount          Float     @default(0)
+  totalThc           Float
+  currency           String    @default("USD")
+  createdAt          DateTime  @default(now())
+}
+
+// -------------------------------------------------------------
+// SYSTEM, AUDIT, DOCUMENTS & UTILITIES
+// -------------------------------------------------------------
+
+model Document {
+  id         String    @id @default(uuid())
+  title      String
+  category   String
+  entityType String
+  entityId   String?
+  fileName   String
+  fileUrl    String
+  fileSize   Int?
+  mimeType   String?
+  uploadedBy String?
+  shipmentId String?
+  shipment   Shipment? @relation(fields: [shipmentId], references: [id])
+  createdAt  DateTime  @default(now())
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id])
+  userName  String?
+  action    String
+  module    String
+  recordId  String?
+  details   String?
+  ipAddress String?
+  createdAt DateTime @default(now())
+
+  @@index([action])
+  @@index([module])
+  @@index([createdAt])
+}
+
+model CalculatorHistory {
+  id             String   @id @default(uuid())
+  calculatorType String
+  inputDataJson  String
+  resultDataJson String
+  savedBy        String?
+  user           User?    @relation(fields: [savedBy], references: [id])
+  createdAt      DateTime @default(now())
+}
+
+model ExchangeRate {
+  id             String   @id @default(uuid())
+  baseCurrency   String   @default("USD")
+  targetCurrency String
+  rate           Float
+  effectiveDate  DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([baseCurrency, targetCurrency])
+}
+

@@ -1,0 +1,18 @@
+{
+  "name": "hansai-shipping-platform",
+  "version": "1.0.0",
+  "description": "HANSAI SHIPPING LINE — Integrated Shipping, Container & Vessel Management System",
+  "scripts": {
+    "install:all": "npm install && cd server && npm install && cd ../client && npm install",
+    "setup": "cd server && npm run setup",
+    "dev:server": "cd server && npm run dev",
+    "dev:client": "cd client && npm run dev",
+    "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
+    "seed": "cd server && npm run seed",
+    "build": "cd client && npm run build",
+    "start": "cd server && npm run start"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0"
+  }
+}
